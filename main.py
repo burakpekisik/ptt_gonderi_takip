@@ -2,6 +2,7 @@ import json
 import time
 import asyncio
 import requests
+import datetime
 from database import insert_to_database, connect_to_database, close_database_connection, get_all_data
 from userInfo import order_api
 from selenium import webdriver
@@ -14,10 +15,10 @@ class TrackOrder:
         self.order_api = order_api
         self.filtered_data = []
         self.chrome_options = webdriver.ChromeOptions()
-        self.chrome_options.add_argument("--headless")
-        self.chrome_options.add_argument("--disable-gpu")
-        self.chrome_options.add_argument("window-size=1024,768")
-        self.chrome_options.add_argument("--no-sandbox")
+        # self.chrome_options.add_argument("--headless")
+        # self.chrome_options.add_argument("--disable-gpu")
+        # self.chrome_options.add_argument("window-size=1024,768")
+        # self.chrome_options.add_argument("--no-sandbox")
         self.driver = webdriver.Chrome(options=self.chrome_options)
         self.driver.implicitly_wait(40)
 
@@ -43,8 +44,10 @@ class TrackOrder:
         all_data = get_all_data(mycol)
 
         delivered_orders = {data["ID"] for data in all_data if data["status"] == "TESLİM EDİLDİ"}
+        false_tracks = {data["ID"] for data in all_data if data["status"] == "Hatalı Takip Kodu"}
+        filtered_orders = delivered_orders.union(false_tracks)
 
-        self.filtered_data = [data for data in self.filtered_data if data["ID"] not in delivered_orders]
+        self.filtered_data = [data for data in self.filtered_data if data["ID"] not in filtered_orders]
 
         print("Filtered Data: ", self.filtered_data)
 
@@ -105,20 +108,32 @@ class TrackOrder:
         close_database_connection()
 
 async def main():
-    remaining_time = 30  # Başlangıçta 30 dakika kalan süre
-
     while True:  # Sonsuz bir döngü başlatıyoruz
+        # Şu anki tarihi ve saati al
+        now = datetime.datetime.now()
+
+        # Eğer şu anki gün Cumartesi veya Pazar ise döngüyü bekleme
+        if now.weekday() >= 5:
+            print("Bugün Cumartesi veya Pazar, döngü bekleme.")
+            await asyncio.sleep(3600)  # 1 saat bekleme
+            continue
+
+        # Eğer şu anki saat 10:00 ile 19:00 arası değilse döngüyü bekleme
+        if now.hour < 10 or now.hour >= 19:
+            print("Şu anki saat 10:00 ile 19:00 arası değil, döngü bekleme.")
+            await asyncio.sleep(3600)  # 1 saat bekleme
+            continue
+
         trackOrder = TrackOrder()
         trackOrder.get_track_ids()
         await trackOrder.check_status()
 
         # 1 dakika (60 saniye) bekle
+        remaining_time = 30  # Başlangıçta 30 dakika kalan süre
         for _ in range(remaining_time):
             print(f"Kalan süre: {remaining_time} dakika")
             await asyncio.sleep(60)
             remaining_time -= 1
-
-        remaining_time = 30  # Yeni döngü başladığında tekrar 30 dakika olarak ayarla
 
 # Run the asyncio event loop
 if __name__ == "__main__":
