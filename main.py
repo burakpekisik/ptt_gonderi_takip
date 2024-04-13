@@ -1,8 +1,10 @@
+import sys
 import json
 import time
 import asyncio
 import requests
 import datetime
+from selenium.common.exceptions import TimeoutException
 from database import insert_to_database, connect_to_database, close_database_connection, get_all_data
 from userInfo import order_api
 from selenium import webdriver
@@ -15,36 +17,54 @@ class TrackOrder:
         self.order_api = order_api
         self.filtered_data = []
         self.chrome_options = webdriver.ChromeOptions()
-        # self.chrome_options.add_argument("--headless")
-        # self.chrome_options.add_argument("--disable-gpu")
-        # self.chrome_options.add_argument("window-size=1024,768")
-        # self.chrome_options.add_argument("--no-sandbox")
+        self.chrome_options.add_argument("--headless")
+        self.chrome_options.add_argument("--disable-gpu")
+        self.chrome_options.add_argument("window-size=1024,768")
+        self.chrome_options.add_argument("--no-sandbox")
         self.driver = webdriver.Chrome(options=self.chrome_options)
         self.driver.implicitly_wait(40)
 
     def get_track_ids(self):
         print("Getting Track IDs From API")
-        try:
-            self.filtered_data.clear()
-            response_API = requests.get(self.order_api)
-            print(response_API.status_code)
-            data = response_API.text
-            parse_json = json.loads(data)
-            
-            self.filtered_data = [item for item in parse_json if 'trackId' in item]
+        max_retries = 5
+        retries = 0
 
-            # for data in self.filtered_data:
-            #     print("Track IDs: ", data["trackId"])
-        except Exception as e:
-            print("Error While Fetching Data From API: "  + str(e))
+        while retries < max_retries:
+            try:
+                self.filtered_data.clear()
+                response_API = requests.get(self.order_api)
+                print(response_API.status_code)
+
+                if response_API.status_code == 200:
+                    data = response_API.text
+                    parse_json = json.loads(data)
+                    
+                    self.filtered_data = [item for item in parse_json if 'trackId' in item]
+                    break
+                else:
+                    retries += 1
+                    print(f"Retrying... Attempt {retries}/{max_retries}")
+                    time.sleep(1)  # Wait for 1 second before retrying
+
+            except Exception as e:
+                retries += 1
+                print(f"Error While Fetching Data From API: {str(e)}")
+                print(f"Retrying... Attempt {retries}/{max_retries}")
+                time.sleep(1)  # Wait for 1 second before retrying
+
+        if retries == max_retries:
+            print("Max retries reached. Exiting.")
+            sys.exit()
 
     async def check_status(self):  # Make the method asynchronous
         print("Checking Status of Track IDs")
         mycol = connect_to_database()
+        
         all_data = get_all_data(mycol)
-
         delivered_orders = {data["ID"] for data in all_data if data["status"] == "TESLİM EDİLDİ"}
-        false_tracks = {data["ID"] for data in all_data if data["status"] == "Hatalı Takip Kodu"}
+
+        all_data = get_all_data(mycol)
+        false_tracks = {data_false["ID"] for data_false in all_data if data_false["status"] == "Hatalı Takip Kodu"}
         filtered_orders = delivered_orders.union(false_tracks)
 
         self.filtered_data = [data for data in self.filtered_data if data["ID"] not in filtered_orders]
@@ -71,24 +91,24 @@ class TrackOrder:
                 search_button = WebDriverWait(self.driver, 40).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, "#searchButton"))
                 )
+                time.sleep(2)
                 search_button.click()
 
-                try:
-                    time.sleep(2)
-                    error_text = self.driver.find_element(By.XPATH, "/html/body/div/div/div[2]/span").get_attribute("innerHTML")
-                    # error_text = WebDriverWait(self.driver, 5).until(
-                    #     EC.presence_of_element_located((By.XPATH, "/html/body/div/div/div[2]/span"))
-                    # ).get_attribute("innerHTML")
+                # try:
+                #     error_text = self.driver.find_element(By.XPATH, "/html/body/div/div/div[2]/span").get_attribute("innerHTML")
+                #     # error_text = WebDriverWait(self.driver, 5).until(
+                #     #     EC.presence_of_element_located((By.XPATH, "/html/body/div/div/div[2]/span"))
+                #     # ).get_attribute("innerHTML")
 
-                    if error_text != "":
-                        print("Invalid Track ID: " + data["trackId"])
-                        data["status"] = "Hatalı Takip Kodu"
-                        await insert_to_database(data, mycol)
-                        continue
+                #     if error_text != "":
+                #         print("Invalid Track ID: " + data["trackId"])
+                #         data["status"] = "Hatalı Takip Kodu"
+                #         await insert_to_database(data, mycol)
+                #         continue
 
-                    print("Error Text: " + error_text)
-                except:
-                    pass
+                #     print("Error Text: " + error_text)
+                # except:
+                #     pass
 
                 transport_status = WebDriverWait(self.driver, 40).until(
                     EC.presence_of_element_located((By.XPATH, "/html/body/main/div/div[1]/div[2]/b/h8/span"))
@@ -103,22 +123,27 @@ class TrackOrder:
             except Exception as e:
                 print("Error While Fetching Data From PTT Website: " + str(e))
                 print("Invalid Track ID: " + data["trackId"])
+                data["status"] = "Hatalı Takip Kodu"
+                await insert_to_database(data, mycol)
                 continue
 
         close_database_connection()
+
+    def close(self):
+        self.driver.quit()
 
 async def main():
     while True:  # Sonsuz bir döngü başlatıyoruz
         # Şu anki tarihi ve saati al
         now = datetime.datetime.now()
 
-        # Eğer şu anki gün Cumartesi veya Pazar ise döngüyü bekleme
+        #Eğer şu anki gün Cumartesi veya Pazar ise döngüyü bekleme
         if now.weekday() >= 5:
             print("Bugün Cumartesi veya Pazar, döngü bekleme.")
             await asyncio.sleep(3600)  # 1 saat bekleme
             continue
 
-        # Eğer şu anki saat 10:00 ile 19:00 arası değilse döngüyü bekleme
+        #Eğer şu anki saat 10:00 ile 19:00 arası değilse döngüyü bekleme
         if now.hour < 10 or now.hour >= 19:
             print("Şu anki saat 10:00 ile 19:00 arası değil, döngü bekleme.")
             await asyncio.sleep(3600)  # 1 saat bekleme
@@ -136,5 +161,15 @@ async def main():
             remaining_time -= 1
 
 # Run the asyncio event loop
+# if __name__ == "__main__":
+#     asyncio.run(main())
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        print("Scanning stopped by user.")
+    finally:
+        TrackOrder.close()
+        loop.close()

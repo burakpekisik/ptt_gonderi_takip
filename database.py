@@ -1,6 +1,6 @@
 import pymongo
-import asyncio
 from telegram_bot import send_group_message
+# from send_sms import send_sms
 
 myclient = None
 
@@ -22,13 +22,13 @@ async def insert_to_database(data, mycol):
             if existing_data["status"] != data["status"]:
                 mycol.update_one({"trackId": data["trackId"]}, {"$set": {"status": data["status"]}})
                 print(f"Status updated for trackId {data['trackId']}")
-                message = f"Gönderi Durumu Güncellendi!\nSipariş ID: {data['ID']}\nMüşteri Adı: {data['customerName']}\nGönderi Durumu: {data['status']}\nTakip Kodu: {data['trackId']}"
+                message = f"Gönderi Durumu Güncellendi!\nSipariş ID: {data['ID']}\nMüşteri Adı: {data['customerName']}\nGönderi Durumu: {data['status']}\nTakip Kodu: {data['trackId']}\nGönderi Takip: https://gonderitakip.ptt.gov.tr/Track/Verify?q={data['trackId']}"
                 await send_group_message(message)
             else:
                 print(f"Data with trackId {data['trackId']} Already Exists and Status Is The Same.")
         else:
             x = mycol.insert_one(data)
-            message = f"Takip Kodu Eklendi!\nSipariş ID: {data['ID']}\nMüşteri Adı: {data['customerName']}\nGönderi Durumu: {data['status']}\nTakip Kodu: {data['trackId']}"
+            message = f"Takip Kodu Eklendi!\nSipariş ID: {data['ID']}\nMüşteri Adı: {data['customerName']}\nGönderi Durumu: {data['status']}\nTakip Kodu: {data['trackId']}\nGönderi Takip: https://gonderitakip.ptt.gov.tr/Track/Verify?q={data['trackId']}"
             await send_group_message(message)
             print("Data Inserted Successfully.")
     except Exception as e:
