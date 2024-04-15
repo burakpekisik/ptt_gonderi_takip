@@ -80,13 +80,13 @@ class TrackOrder:
 
         for data in self.filtered_data:
             try:
-                print("Checking Status of Order with Track ID: " + data["trackId"])
+                print("Checking Status of Order with Track ID: " + str(data["trackId"]))
                 self.driver.get("https://gonderitakip.ptt.gov.tr/")
                 input_field = WebDriverWait(self.driver, 40).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "#search-area"))
                 )
 
-                input_field.send_keys(data["trackId"])
+                input_field.send_keys(str(data["trackId"]))
 
                 search_button = WebDriverWait(self.driver, 40).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, "#searchButton"))
@@ -122,7 +122,7 @@ class TrackOrder:
 
             except Exception as e:
                 print("Error While Fetching Data From PTT Website: " + str(e))
-                print("Invalid Track ID: " + data["trackId"])
+                print("Invalid Track ID: " + str(data["trackId"]))
                 data["status"] = "Hatalı Takip Kodu"
                 await insert_to_database(data, mycol)
                 continue
